@@ -92,7 +92,8 @@ plot_temp <- ggplot() +
   geom_sf(data = sf_bus_stops_condensed, colour = "darkred", alpha = 0.8)
   # scale_fill_viridis_b(breaks = c(1000, 2000, 3000, 4000, 5000, 6000))
 
-ggsave(filename = "plot_temp.png", plot = plot_temp, device = "png", width = 15, height = 15, units = "cm", dpi = 300)
+ggsave(filename = "plot_temp.png", plot = plot_temp, device = "png", 
+       width = 15, height = 15, units = "cm", dpi = 300)
 
 # Group points within 100 metres of each other --------------------------
 sf_bus_stops_condensed <- sf_bus_stops %>% 
