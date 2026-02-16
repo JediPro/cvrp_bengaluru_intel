@@ -31,7 +31,6 @@ sf_bbox <- st_bbox(sf_city_limits) %>%
   st_as_sfc(crs = st_crs(sf_city_limits))
 
 # Fetch road network of city --------------------------
-# # Get main roads
 # feat_major_road <- osmdata::opq(bbox = sf_bbox, timeout = 100) %>%
 #   osmdata::add_osm_feature(key = "highway",
 #                   value = c("motorway", "motorway_link",
@@ -56,6 +55,21 @@ sf_bbox <- st_bbox(sf_city_limits) %>%
 # write_rds(x = sf_city_road, file = "city_roads.rds")
 sf_city_road <- read_rds(file = "city_roads.rds")
 
+# Fetch bus stops of city --------------------------
+# sf_bus_stops <- osmdata::opq(bbox = sf_bbox, timeout = 100) %>%
+#   osmdata::add_osm_feature(key = "highway",
+#                   value = c("bus_stop")) %>%
+#   osmdata::osmdata_sf() %>% 
+#   `$`(osm_points) %>% 
+#   # Only keep points within city limits
+#   st_intersection(y = sf_city_limits %>% select(geometry)) %>% 
+#   # keep columns
+#   select(osm_id, highway, name)
+# 
+# # Save
+# write_rds(x = sf_bus_stops, file = "sf_bus_stops.rds")
+sf_bus_stops <- read_rds(file = "sf_bus_stops.rds")
+
 # Load Population raster ------------------------------
 rs_built <- terra::rast(x = "GHS_BUILT_S_E2025_GLOBE_R2023A_54009_100_V1_0_R8_C26.tif") %>% 
   # Remove layers
@@ -66,13 +80,62 @@ rs_built <- terra::rast(x = "GHS_BUILT_S_E2025_GLOBE_R2023A_54009_100_V1_0_R8_C2
   # Change projection
   terra::project(y = "epsg:4326") %>% 
   # Mask values outside city limits
-  terra::mask(mask = sf_city_limits, inverse = FALSE, updatevalue = NA) %>% 
-  # The high population area is incorrect, change values
-  tidyterra::mutate(popn = case_when(popn >= 270 ~ 100, TRUE ~ popn))
-# Write to disk
-# terra::writeRaster(x = rs_popn, filename = "raster_city_popn.tif", overwrite = TRUE)
+  terra::mask(mask = sf_city_limits, inverse = FALSE, updatevalue = NA)
 
-ggplot() +
-  tidyterra::geom_spatraster(data = rs_built) + 
-  geom_sf(data = sf_city_limits, colour = "white", linewidth = 2, fill = NA) +
-  scale_fill_viridis_b(breaks = c(1000, 2000, 3000, 4000, 5000, 6000))
+# Convert to SF object ------------------------
+sf_built <- rs_built %>% terra::as.points() %>% st_as_sf()
+
+plot_temp <- ggplot() +
+  # tidyterra::geom_spatraster(data = rs_built) + 
+  geom_sf(data = sf_city_limits, colour = "purple", linewidth = 2, fill = NA) +
+  # geom_sf(data = sf_bus_stops, colour = "blue", alpha = 0.5) +
+  geom_sf(data = sf_bus_stops_condensed, colour = "darkred", alpha = 0.8)
+  # scale_fill_viridis_b(breaks = c(1000, 2000, 3000, 4000, 5000, 6000))
+
+ggsave(filename = "plot_temp.png", plot = plot_temp, device = "png", width = 15, height = 15, units = "cm", dpi = 300)
+
+# Group points within 100 metres of each other --------------------------
+sf_bus_stops_condensed <- sf_bus_stops %>% 
+  # Convert to mollweide projection
+  st_transform(crs = "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m") %>% 
+  # Convert to coordinates
+  st_coordinates() %>% 
+  as.data.frame() %>% 
+  # Run dbscan algorithm
+  dbscan::dbscan(eps = 200, minPts = 1) %>% 
+  # Extract clusters for each point
+  `$`(cluster) %>% 
+  # Convert to tibble
+  as_tibble_col(column_name = "cluster_id") %>% 
+  # Bind to original tibble
+  bind_cols(sf_bus_stops, .) %>% 
+  # Group by clusters and get centroid
+  group_by(cluster_id) %>% 
+  summarise(geometry = st_union(x = geometry)) %>% 
+  st_centroid() %>% 
+  # Transform coordinates
+  st_transform(crs = 4326)
+
+# Calculate weight of each clustered bus stop, proportional to the level of built up area ----------------------
+# data_stop_popn <-  sf_bus_stops_condensed %>% 
+#   # Calculate distance to all points in raster sf
+#   st_distance(y = sf_built, by_element = FALSE) %>% 
+#   # Convert to matrix
+#   as.matrix() %>% 
+#   # Drop units due to matrix operations being hampered when sf is loaded
+#   units::drop_units() %>% 
+#   # Calculate multiplier for demand based on distance
+#   (function(a) exp(-(a^2)/(500^2))) %>%
+#   # Multiply by demand generated  by each point
+#   `%*%` (sf_built$built) %>% 
+#   as.data.frame() %>% 
+#   # Convert to tibble
+#   as_tibble() %>% 
+#   rename(popn = V1) %>% 
+#   # Round figure
+#   mutate(popn = round(popn)) %>% 
+#   # Map Point generator fields
+#   bind_cols(sf_bus_stops_condensed, .)
+# write_rds(x = data_stop_popn, file = "data_stop_popn.rds")
+data_stop_popn <- read_rds(file = "data_stop_popn.rds")
+
