@@ -10,11 +10,18 @@ setwd("C:\\Stuff\\Datasets\\GitHub\\cvrp_bengaluru_intel\\")
 # Define location of office ----------------------------
 sf_point_office <- st_point(x = c(77.6844, 12.926047), dim = "XY") %>% 
   st_sfc(crs = 4326)
-# Fetch city municipality limits -----------------------
-sf_city_limits <- osmdata::opq_enclosing(lon = sf_point_office %>% st_coordinates() %>% `[[`(1), 
-                                         lat = sf_point_office %>% st_coordinates() %>% `[[`(2))
 
-# Create bbox for city limits ----------------------
+# Fetch city municipality limits -----------------------
+# sf_city_limits <- osmdata::opq_enclosing(lon = sf_point_office %>% st_coordinates() %>% `[[`(1), 
+#                                          lat = sf_point_office %>% st_coordinates() %>% `[[`(2), 
+#                                          key = "name", value = "Bengaluru", 
+#                                          enclosing = "relation", timeout = 100) %>% 
+#   osmdata::osmdata_sf() %>% 
+#   `$`(osm_multipolygons)
+# write_rds(x = sf_city_limits, file = "sf_city_limits.rds")
+sf_city_limits <- read_rds(file = "sf_city_limits.rds")
+
+# Create bounding box for city limits ----------------------
 sf_bbox <- st_bbox(sf_city_limits) %>% 
   # Convert to sf
   st_as_sfc(crs = st_crs(sf_city_limits))
@@ -27,8 +34,7 @@ feat_major_road <- opq(bbox = sf_bbox, timeout = 100) %>%
                             "trunk", "trunk_link",
                             "primary", "primary_link",
                             "secondary", "secondary_link",
-                            "tertiary", "tertiary_link",
-                            "unclassified", "residential")) %>%
+                            "tertiary", "tertiary_link")) %>%
   osmdata_sf()
 # Save
 # write_rds(x = feat_major_road, file = "kalyani_road.rds")
