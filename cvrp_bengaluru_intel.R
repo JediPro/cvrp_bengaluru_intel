@@ -68,7 +68,7 @@ sf_city_road <- read_rds(file = "city_roads.rds")
 # 
 # # Save
 # write_rds(x = sf_bus_stops, file = "sf_bus_stops.rds")
-sf_bus_stops <- read_rds(file = "sf_bus_stops.rds")
+# sf_bus_stops <- read_rds(file = "sf_bus_stops.rds")
 
 # Load Population raster ------------------------------
 rs_built <- terra::rast(x = "GHS_BUILT_S_E2025_GLOBE_R2023A_54009_100_V1_0_R8_C26.tif") %>% 
@@ -82,9 +82,7 @@ rs_built <- terra::rast(x = "GHS_BUILT_S_E2025_GLOBE_R2023A_54009_100_V1_0_R8_C2
   # Mask values outside city limits
   terra::mask(mask = sf_city_limits, inverse = FALSE, updatevalue = NA)
 
-# Convert to SF object ------------------------
-sf_built <- rs_built %>% terra::as.points() %>% st_as_sf()
-
+# PLot ---------------------
 plot_temp <- ggplot() +
   # tidyterra::geom_spatraster(data = rs_built) + 
   geom_sf(data = sf_city_limits, colour = "purple", linewidth = 2, fill = NA) +
@@ -95,28 +93,30 @@ plot_temp <- ggplot() +
 ggsave(filename = "plot_temp.png", plot = plot_temp, device = "png", 
        width = 15, height = 15, units = "cm", dpi = 300)
 
-# Group points within 100 metres of each other --------------------------
-sf_bus_stops_condensed <- sf_bus_stops %>% 
-  # Convert to mollweide projection
-  st_transform(crs = "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m") %>% 
-  # Convert to coordinates
-  st_coordinates() %>% 
-  as.data.frame() %>% 
-  # Run dbscan algorithm
-  dbscan::dbscan(eps = 200, minPts = 1) %>% 
-  # Extract clusters for each point
-  `$`(cluster) %>% 
-  # Convert to tibble
-  as_tibble_col(column_name = "cluster_id") %>% 
-  # Bind to original tibble
-  bind_cols(sf_bus_stops, .) %>% 
-  # Group by clusters and get centroid
-  group_by(cluster_id) %>% 
-  summarise(geometry = st_union(x = geometry)) %>% 
-  st_centroid() %>% 
-  # Transform coordinates
-  st_transform(crs = 4326)
+# # Group points within 100 metres of each other --------------------------
+# sf_bus_stops_condensed <- sf_bus_stops %>% 
+#   # Convert to mollweide projection
+#   st_transform(crs = "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m") %>% 
+#   # Convert to coordinates
+#   st_coordinates() %>% 
+#   as.data.frame() %>% 
+#   # Run dbscan algorithm
+#   dbscan::dbscan(eps = 200, minPts = 1) %>% 
+#   # Extract clusters for each point
+#   `$`(cluster) %>% 
+#   # Convert to tibble
+#   as_tibble_col(column_name = "cluster_id") %>% 
+#   # Bind to original tibble
+#   bind_cols(sf_bus_stops, .) %>% 
+#   # Group by clusters and get centroid
+#   group_by(cluster_id) %>% 
+#   summarise(geometry = st_union(x = geometry)) %>% 
+#   st_centroid() %>% 
+#   # Transform coordinates
+#   st_transform(crs = 4326)
 
+# Convert to SF object ------------------------
+# sf_built <- rs_built %>% terra::as.points() %>% st_as_sf()
 # Calculate weight of each clustered bus stop, proportional to the level of built up area ----------------------
 # data_stop_popn <-  sf_bus_stops_condensed %>% 
 #   # Calculate distance to all points in raster sf
@@ -138,5 +138,12 @@ sf_bus_stops_condensed <- sf_bus_stops %>%
 #   # Map Point generator fields
 #   bind_cols(sf_bus_stops_condensed, .)
 # write_rds(x = data_stop_popn, file = "data_stop_popn.rds")
-data_stop_popn <- read_rds(file = "data_stop_popn.rds")
+data_stop_popn <- read_rds(file = "data_stop_popn.rds") %>% 
+  # Remove stop with 0
+  filter(popn > 0) %>% 
+  # Normalize popn, in the range 1 to 11
+  mutate(popn = ceiling(10 * (popn + 1 - min(popn))/(max(popn) - min(popn))))
+
+# 
+
 
