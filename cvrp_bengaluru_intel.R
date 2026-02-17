@@ -144,6 +144,14 @@ data_stop_popn <- read_rds(file = "data_stop_popn.rds") %>%
   # Normalize popn, in the range 1 to 11
   mutate(popn = ceiling(10 * (popn + 1 - min(popn))/(max(popn) - min(popn))))
 
-# 
+# Workflow -----------------------------
+# Initiate population with random order of stops
+# Generate sequence of vehicles for routes based on probabilities of each type,
+# proportional to number of vehicles of each type
+# Start from beginning of chromosome, assign stops to that vehicle type till capacity is reached
+# Repeat till all stops are assigned to vehicles, which form the final routes
+# Calculate fitness function based on distance covered, and vehicle running cost
+# Use OVRP for above
+# Iterate till limits reached
 
 
