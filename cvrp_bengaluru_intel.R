@@ -3,6 +3,8 @@
 # Load libraries -------------------------------------
 library(tidyverse)
 library(sf)
+library(tidygraph)
+library(sfnetworks)
 
 # Set working directory ------------------------------
 setwd("C:\\Stuff\\Datasets\\GitHub\\cvrp_bengaluru_intel\\")
@@ -154,4 +156,5 @@ data_stop_popn <- read_rds(file = "data_stop_popn.rds") %>%
 # Use OVRP for above
 # Iterate till limits reached
 
+# 
 
