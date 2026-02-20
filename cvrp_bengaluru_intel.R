@@ -32,8 +32,8 @@ sf_bbox <- st_bbox(sf_city_limits) %>%
   # Convert to sf
   st_as_sfc(crs = st_crs(sf_city_limits))
 
-# Fetch road network of city --------------------------
-# feat_major_road <- osmdata::opq(bbox = sf_bbox, timeout = 100) %>%
+# # Fetch road network of city --------------------------
+# feat_major_road <- osmdata::opq(bbox = sf_bbox, timeout = 200) %>%
 #   osmdata::add_osm_feature(key = "highway",
 #                   value = c("motorway", "motorway_link",
 #                             "trunk", "trunk_link",
@@ -41,18 +41,21 @@ sf_bbox <- st_bbox(sf_city_limits) %>%
 #                             "secondary", "secondary_link",
 #                             "tertiary", "tertiary_link")) %>%
 #   osmdata::osmdata_sf()
-# 
-# # Save set of roads
+# write_rds(x = feat_major_road, file = "feat_major_road.rds")
+
+# # Save set of roads -----------------------------------
+# feat_major_road <- read_rds(file = "feat_major_road.rds")
 # sf_city_road <- bind_rows(feat_major_road$osm_lines %>%
-#                             select(osm_id, highway, name),
+#                             select(osm_id, highway, name, oneway),
 #                           feat_major_road$osm_polygons %>%
-#                             select(osm_id, highway, name) %>%
+#                             select(osm_id, highway, name, oneway) %>%
 #                             st_cast(to = "LINESTRING")) %>%
 #   # Truncate roads to stay within bounding box
-#   st_intersection(y = sf_city_limits %>% select(geometry)) %>% 
+#   # Use st_intersects otherwise lines are split if they cross boundary twice
+#   st_filter(y = sf_city_limits, .predicate = st_intersects) %>% 
+#   mutate(type = st_geometry_type(x = geometry, by_geometry = TRUE))
 #   # Keep columns
-#   select(osm_id, highway, name)
-# 
+#   select(osm_id, highway, name, onweay)
 # # Save
 # write_rds(x = sf_city_road, file = "city_roads.rds")
 sf_city_road <- read_rds(file = "city_roads.rds")
@@ -72,22 +75,23 @@ sf_city_road <- read_rds(file = "city_roads.rds")
 # write_rds(x = sf_bus_stops, file = "sf_bus_stops.rds")
 # sf_bus_stops <- read_rds(file = "sf_bus_stops.rds")
 
-# Load Population raster ------------------------------
-rs_built <- terra::rast(x = "GHS_BUILT_S_E2025_GLOBE_R2023A_54009_100_V1_0_R8_C26.tif") %>% 
-  # Remove layers
-  tidyterra::rename(built = GHS_BUILT_S_E2025_GLOBE_R2023A_54009_100_V1_0_R8_C26) %>% 
-  # Crop to city bounding box
-  terra::crop(y = terra::vect(x = sf_bbox %>% 
-                                st_transform(crs = "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m"))) %>% 
-  # Change projection
-  terra::project(y = "epsg:4326") %>% 
-  # Mask values outside city limits
-  terra::mask(mask = sf_city_limits, inverse = FALSE, updatevalue = NA)
+# # Load Population raster ------------------------------
+# rs_built <- terra::rast(x = "GHS_BUILT_S_E2025_GLOBE_R2023A_54009_100_V1_0_R8_C26.tif") %>% 
+#   # Remove layers
+#   tidyterra::rename(built = GHS_BUILT_S_E2025_GLOBE_R2023A_54009_100_V1_0_R8_C26) %>% 
+#   # Crop to city bounding box
+#   terra::crop(y = terra::vect(x = sf_bbox %>% 
+#                                 st_transform(crs = "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m"))) %>% 
+#   # Change projection
+#   terra::project(y = "epsg:4326") %>% 
+#   # Mask values outside city limits
+#   terra::mask(mask = sf_city_limits, inverse = FALSE, updatevalue = NA)
 
 # PLot ---------------------
-plot_temp <- ggplot() +
+ggplot() +
   # tidyterra::geom_spatraster(data = rs_built) + 
-  geom_sf(data = sf_city_limits, colour = "purple", linewidth = 2, fill = NA) +
+  geom_sf(data = sf_city_limits, colour = "purple", linewidth = 1, fill = NA) +
+  geom_sf(data = sf_city_road)
   # geom_sf(data = sf_bus_stops, colour = "blue", alpha = 0.5) +
   geom_sf(data = sf_bus_stops_condensed, colour = "darkred", alpha = 0.8)
   # scale_fill_viridis_b(breaks = c(1000, 2000, 3000, 4000, 5000, 6000))
@@ -156,22 +160,12 @@ data_stop_popn <- read_rds(file = "data_stop_popn.rds") %>%
 # Use OVRP for above
 # Iterate till limits reached
 
-st_geometry(sf_city_road) <- lapply(st_geometry(sf_city_road), function(x) {
-  round(x, 3)
-})
-
-
 # Process Road Network ---------------------------------------
 sfnet_road <- sf_city_road %>%
-  # Convert all to Multi line string, to enable later conversion to LInestring
+  # Convert all to Multi line string, to enable later conversion to Linestring
   st_cast(to = "MULTILINESTRING") %>% 
-  st_cast(to = "LINESTRING")
-  # slice_head(n = 1) %>% 
-  mutate(geometry = map2(.x = geometry, .y = osm_id, .f = function(x, y) {
-    print(y)
-    return(round(x, 4))
-  }))
-  # Round precision to 3 decimals
+  st_cast(to = "LINESTRING") %>% 
+  # Round precision to 4 decimals
   st_set_geometry(value = st_geometry(.) %>% 
                     lapply(FUN = function(x) round(x, 4)) %>% 
                     st_sfc(crs = st_crs(x = sf_city_road))) %>% 
@@ -181,19 +175,27 @@ sfnet_road <- sf_city_road %>%
                            str_detect(string = highway, pattern = "secondary") ~ 40L,
                            str_detect(string = highway, pattern = "tertiary") ~ 30L,
                            TRUE ~ 20L)) %>% 
-  as_sfnetwork(x = shp_major_road, directed = FALSE) %>% 
-  # Subdivude edges
+  # Keep only geometries
+  select(speed) %>% 
+  # Convert to SF NETWORK
+  # Keep as non-directed to keep number of edges to minimum
+  as_sfnetwork(directed = FALSE) %>% 
+  # Subdivude edges at locations which are interior points to more than one edge
   convert(.f = to_spatial_subdivision, .clean = TRUE) %>% 
+  # Group components
+  activate(nodes) %>% 
+  mutate(cmp = group_components()) %>% 
+  # Keep only the first component, which is the largest one
+  filter(cmp == 1) %>% 
+  select(-cmp) %>% 
   # Sum up weights for combined
-  activate(what = "edges") %>% 
+  activate(edges) %>% 
   # Calculate time to cross edge
   mutate(edge_dist = edge_length() %>% as.numeric(),
          # Calculate time
-         edge_time = edge_dist/((5/18) * speed)
-         # edge_time = edge_dist
-  ) %>% 
-  activate(what = "nodes") %>% 
+         edge_time = edge_dist/((5/18) * speed)) %>% 
   # Smooth network
+  activate(what = "nodes") %>% 
   convert(.f = to_spatial_smooth, store_original_data = TRUE, .clean = TRUE) %>% 
   # Back to edges
   activate(what = "edges") %>% 
