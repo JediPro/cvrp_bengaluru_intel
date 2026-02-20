@@ -156,5 +156,62 @@ data_stop_popn <- read_rds(file = "data_stop_popn.rds") %>%
 # Use OVRP for above
 # Iterate till limits reached
 
-# 
+st_geometry(sf_city_road) <- lapply(st_geometry(sf_city_road), function(x) {
+  round(x, 3)
+})
+
+
+# Process Road Network ---------------------------------------
+sfnet_road <- sf_city_road %>%
+  # Convert all to Multi line string, to enable later conversion to LInestring
+  st_cast(to = "MULTILINESTRING") %>% 
+  st_cast(to = "LINESTRING")
+  # slice_head(n = 1) %>% 
+  mutate(geometry = map2(.x = geometry, .y = osm_id, .f = function(x, y) {
+    print(y)
+    return(round(x, 4))
+  }))
+  # Round precision to 3 decimals
+  st_set_geometry(value = st_geometry(.) %>% 
+                    lapply(FUN = function(x) round(x, 4)) %>% 
+                    st_sfc(crs = st_crs(x = sf_city_road))) %>% 
+  # Set speeds
+  mutate(speed = case_when(str_detect(string = highway, pattern = "motorway|trunk") ~ 60L,
+                           str_detect(string = highway, pattern = "primary") ~ 50L,
+                           str_detect(string = highway, pattern = "secondary") ~ 40L,
+                           str_detect(string = highway, pattern = "tertiary") ~ 30L,
+                           TRUE ~ 20L)) %>% 
+  as_sfnetwork(x = shp_major_road, directed = FALSE) %>% 
+  # Subdivude edges
+  convert(.f = to_spatial_subdivision, .clean = TRUE) %>% 
+  # Sum up weights for combined
+  activate(what = "edges") %>% 
+  # Calculate time to cross edge
+  mutate(edge_dist = edge_length() %>% as.numeric(),
+         # Calculate time
+         edge_time = edge_dist/((5/18) * speed)
+         # edge_time = edge_dist
+  ) %>% 
+  activate(what = "nodes") %>% 
+  # Smooth network
+  convert(.f = to_spatial_smooth, store_original_data = TRUE, .clean = TRUE) %>% 
+  # Back to edges
+  activate(what = "edges") %>% 
+  # Replace attributes with old ones
+  mutate(edge_time_alt = map_dbl(.x = .orig_data, 
+                                 .f = function(x){
+                                   x %>% 
+                                     # Covnert to tibble
+                                     as_tibble() %>% 
+                                     # Select weight column
+                                     select(edge_time) %>% 
+                                     sum()
+                                 })) %>% 
+  # If original is blank replace with alt
+  mutate(edge_time = case_when(is.na(edge_time) ~ edge_time_alt,
+                               TRUE ~ edge_time)) %>% 
+  # Remove extra columns
+  select(-c(.orig_data, edge_time_alt)) %>% 
+  # remove multiple edges and loops
+  filter(!(is.na(edge_is_loop()) | is.na(edge_is_multiple())))
 
