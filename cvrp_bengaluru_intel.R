@@ -43,22 +43,22 @@ sf_bbox <- st_bbox(sf_city_limits) %>%
 #   osmdata::osmdata_sf()
 # write_rds(x = feat_major_road, file = "feat_major_road.rds")
 
-# Save set of roads -----------------------------------
-feat_major_road <- read_rds(file = "feat_major_road.rds")
-sf_city_road <- bind_rows(feat_major_road$osm_lines %>%
-                            select(osm_id, highway, name, oneway),
-                          feat_major_road$osm_polygons %>%
-                            select(osm_id, highway, name, oneway) %>%
-                            st_cast(to = "LINESTRING")) %>%
-  # Remove tertiary roads
-  filter(!highway %in% c("tertiary", "tertiary_link")) %>% 
-  # Truncate roads to stay within bounding box
-  # Use st_intersects otherwise lines are split if they cross boundary twice
-  st_filter(y = sf_city_limits, .predicate = st_intersects) %>%
-  # Keep columns
-  select(osm_id, highway, name, oneway)
-# Save
-write_rds(x = sf_city_road, file = "city_roads.rds")
+# # Save set of roads -----------------------------------
+# feat_major_road <- read_rds(file = "feat_major_road.rds")
+# sf_city_road <- bind_rows(feat_major_road$osm_lines %>%
+#                             select(osm_id, highway, name, oneway),
+#                           feat_major_road$osm_polygons %>%
+#                             select(osm_id, highway, name, oneway) %>%
+#                             st_cast(to = "LINESTRING")) %>%
+#   # Remove tertiary roads
+#   filter(!highway %in% c("tertiary", "tertiary_link")) %>% 
+#   # Truncate roads to stay within bounding box
+#   # Use st_intersects otherwise lines are split if they cross boundary twice
+#   st_filter(y = sf_city_limits, .predicate = st_intersects) %>%
+#   # Keep columns
+#   select(osm_id, highway, name, oneway)
+# # Save
+# write_rds(x = sf_city_road, file = "city_roads.rds")
 sf_city_road <- read_rds(file = "city_roads.rds")
 
 # Fetch bus stops of city --------------------------
@@ -161,6 +161,24 @@ data_stop_popn <- read_rds(file = "data_stop_popn.rds") %>%
 # Use OVRP for above
 # Iterate till limits reached
 
+# Function to calculate clusters for any SF point object ----------------------
+fx_dbscan <- function(sf_points, eps){
+  # sf_points <- sfnet_road %>% st_as_sf("nodes")
+  
+  # Extract coordinates
+  mtx_coords <- sf_points %>% 
+    # Transform to mollweide coordinates to be able to set parameters in meters
+    st_transform(crs = "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m") %>% 
+    # Fetch coordinate matrix
+    st_coordinates()
+  
+  # Fetch clusters
+  vec_cluster <- dbscan::dbscan(x = mtx_coords, eps = eps, minPts = 1)$cluster
+  
+  # Bind to object
+  return(sf_points %>% mutate(cluster = vec_cluster))
+}
+
 # Process Road Network ---------------------------------------
 t0 <- Sys.time()
 sfnet_road <- sf_city_road %>%
@@ -176,29 +194,13 @@ sfnet_road <- sf_city_road %>%
                            str_detect(string = highway, pattern = "primary") ~ 36L,
                            str_detect(string = highway, pattern = "secondary") ~ 27L,
                            str_detect(string = highway, pattern = "tertiary") ~ 18L,
-                           TRUE ~ 9L),
-         # # Find length of edge
-         # dist = st_length(x = geometry) %>% as.integer(),
-         # traverse_time = as.integer(dist/((5/18) * speed))
+                           TRUE ~ 9L)
          ) %>% 
   # Keep only geometries
-  select(oneway, speed) %>% 
-  # When oneway tag is -1, reverse the way
-  mutate(geometry = case_when(oneway == -1 ~ st_reverse(x = geometry), TRUE ~ geometry),
-         # Change tags of oneway
-         oneway = case_when(oneway %in% c("yes", "-1") ~ TRUE, TRUE ~ FALSE),
-         # # Need to duplicate 2-way edges, so create column to aid in that
-         # dupl =  case_when(oneway ~ list(c(1)), !oneway ~ list(c(1, 2)))
-         ) %>% 
-  # # Unnest to duplicate the rows
-  # unnest(cols = dupl) %>% 
-  # # Reverse the duplicated row
-  # mutate(geometry = case_when(dupl == 2 ~ st_reverse(x = geometry), TRUE ~ geometry)) %>% 
-  # # Remove columns
-  # select(-c(oneway, dupl)) %>% 
+  select(speed) %>% 
   # Convert to SF NETWORK
   # Keep as non-directed to keep number of edges to minimum
-  as_sfnetwork(directed = TRUE) %>% 
+  as_sfnetwork(directed = FALSE) %>% 
   # Subdivide edges at locations which are interior points to more than one edge
   convert(.f = to_spatial_subdivision, .clean = TRUE) %>% 
   # Group components
@@ -217,6 +219,16 @@ sfnet_road <- sf_city_road %>%
   filter(edge_dist > 0) %>% 
   # Keep required fields
   select(-c(speed, edge_dist)) %>% 
+  # Contract network by replacing clustered notes with centroids
+  activate(nodes) %>% 
+  # Apply function
+  fx_dbscan(eps = 100) %>% 
+  # Find the components again, so that only points in the same network are amalgamated
+  mutate(component = group_components()) %>% 
+  # Contract network
+  convert(.f = to_spatial_contracted, cluster, component,
+          simplify = TRUE, .clean = TRUE, 
+          summarise_attributes = list(edge_time = "sum", "ignore")) %>% 
   # Smooth network
   activate(nodes) %>% 
   convert(.f = to_spatial_smooth, 
@@ -228,44 +240,10 @@ sfnet_road <- sf_city_road %>%
   filter(!(is.na(edge_is_loop()) | is.na(edge_is_multiple())))
 difftime(time1 = Sys.time(), time2 = t0)
 
-# Function to calculate clusters for any SF point object ----------------------
-fx_dbscan <- function(sf_points){
-  # sf_points <- sfnet_road %>% st_as_sf("nodes")
-    
-  # Extract coordinates
-  mtx_coords <- sf_points %>% 
-    # Transform to mollweide coordinates to be able to set parameters in meters
-    st_transform(crs = "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m") %>% 
-    # Fetch coordinate matrix
-    st_coordinates()
-  
-  # Fetch clusters
-  vec_cluster <- dbscan::dbscan(x = mtx_coords, eps = 25, minPts = 1)$cluster
-  
-  # Bind to object
-  return(sf_points %>% mutate(cluster = vec_cluster))
-}
-
-# Contract network based on defined clusters --------------------------
-fgh <- sfnet_road %>% 
-  # Contract network by replacing clustered notes with centroids
-  activate(nodes) %>% 
-  # Apply function
-  fx_dbscan() %>% 
-  # Find the components again, so that only points in the same network are amalgamated
-  mutate(component = group_components()) %>% 
-  # Contract network
-  convert(.f = to_spatial_contracted, cluster, component,
-          simplify = TRUE, .clean = TRUE, 
-          summarise_attributes = list(edge_time = "sum", "ignore")) %>% 
-  # Smooth network
-  activate(nodes) %>% 
-  convert(.f = to_spatial_smooth, 
-          summarise_attributes = list(edge_time = "sum"), .clean = TRUE)
-  
-
 ggplot() +
   geom_sf(data = sf_city_limits, colour = "purple", linewidth = 1, fill = NA) +
-  geom_sf(data = fgh %>% st_as_sf("nodes"), size = 0.2) +
-  geom_sf(data = fgh %>% st_as_sf("edges"), linewidth = 0.5, colour = "lightblue") +
-  coord_sf(xlim = c(77.66, 77.68), ylim = c(12.90, 12.92))
+  geom_sf(data = sfnet_road2 %>% st_as_sf("edges"), linewidth = 1, colour = "dodgerblue") +
+  # geom_sf(data = sfnet_road2 %>% st_as_sf("nodes"), size = 2, alpha = 0.6, colour = "firebrick") +
+  geom_sf(data = data_stop_popn, size = 2, alpha = 0.6, colour = "firebrick") +
+  # coord_sf(xlim = c(77.56, 77.58), ylim = c(12.96, 12.98)) +
+  theme_light()
