@@ -10,7 +10,7 @@ library(sfnetworks)
 setwd("C:\\Stuff\\Datasets\\GitHub\\cvrp_bengaluru_intel\\")
 
 # Define location of office ----------------------------
-sf_point_office <- st_point(x = c(77.6844, 12.926047), dim = "XY") %>% 
+sf_point_office <- st_point(x = c(77.6844, 12.926047), dim = "XY")  %>%  
   st_sfc(crs = 4326)
 
 # Fetch city municipality limits -----------------------
@@ -164,22 +164,38 @@ data_stop_popn <- read_rds(file = "data_stop_popn.rds") %>%
 sfnet_road <- sf_city_road %>%
   # Convert all to Multi line string, to enable later conversion to Linestring
   st_cast(to = "MULTILINESTRING") %>% 
-  st_cast(to = "LINESTRING") %>% 
+  st_cast(to = "LINESTRING") %>%
   # Round precision to 4 decimals
   st_set_geometry(value = st_geometry(.) %>% 
                     lapply(FUN = function(x) round(x, 4)) %>% 
                     st_sfc(crs = st_crs(x = sf_city_road))) %>% 
   # Set speeds
-  mutate(speed = case_when(str_detect(string = highway, pattern = "motorway|trunk") ~ 60L,
-                           str_detect(string = highway, pattern = "primary") ~ 50L,
-                           str_detect(string = highway, pattern = "secondary") ~ 40L,
-                           str_detect(string = highway, pattern = "tertiary") ~ 30L,
-                           TRUE ~ 20L)) %>% 
+  mutate(speed = case_when(str_detect(string = highway, pattern = "motorway|trunk") ~ 45L,
+                           str_detect(string = highway, pattern = "primary") ~ 36L,
+                           str_detect(string = highway, pattern = "secondary") ~ 27L,
+                           str_detect(string = highway, pattern = "tertiary") ~ 18L,
+                           TRUE ~ 9L),
+         # # Find length of edge
+         # dist = st_length(x = geometry) %>% as.integer(),
+         # traverse_time = as.integer(dist/((5/18) * speed))
+         ) %>% 
   # Keep only geometries
-  select(speed) %>% 
+  select(oneway, speed) %>% 
+  # When oneway tag is -1, reverse the way
+  mutate(geometry = case_when(oneway == -1 ~ st_reverse(x = geometry), TRUE ~ geometry),
+         # Change tags of oneway
+         oneway = case_when(oneway %in% c("yes", "-1") ~ TRUE, TRUE ~ FALSE),
+         # Need to duplicate 2-way edges, so create column to aid in that
+         dupl =  case_when(oneway ~ list(c(1)), !oneway ~ list(c(1, 2)))) %>% 
+  # Unnest to duplicate the rows
+  unnest(cols = dupl) %>% 
+  # Reverse the duplicated row
+  mutate(geometry = case_when(dupl == 2 ~ st_reverse(x = geometry), TRUE ~ geometry)) %>% 
+  # Remove columns
+  select(-c(oneway, dupl)) %>% 
   # Convert to SF NETWORK
   # Keep as non-directed to keep number of edges to minimum
-  as_sfnetwork(directed = FALSE) %>% 
+  as_sfnetwork(directed = TRUE) %>% 
   # Subdivude edges at locations which are interior points to more than one edge
   convert(.f = to_spatial_subdivision, .clean = TRUE) %>% 
   # Group components
