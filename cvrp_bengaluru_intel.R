@@ -210,26 +210,21 @@ sfnet_road <- sf_city_road %>%
   mutate(edge_dist = edge_length() %>% as.numeric(),
          # Calculate time
          edge_time = edge_dist/((5/18) * speed)) %>% 
+  # Remove zero length edges
+  filter(edge_dist > 0) %>% 
+  # Keep required fields
+  select(-c(speed, edge_dist)) %>% 
   # Smooth network
-  activate(what = "nodes") %>% 
-  convert(.f = to_spatial_smooth, store_original_data = TRUE, .clean = TRUE) %>% 
-  # Back to edges
-  activate(what = "edges") %>% 
-  # Replace attributes with old ones
-  mutate(edge_time_alt = map_dbl(.x = .orig_data, 
-                                 .f = function(x){
-                                   x %>% 
-                                     # Covnert to tibble
-                                     as_tibble() %>% 
-                                     # Select weight column
-                                     select(edge_time) %>% 
-                                     sum()
-                                 })) %>% 
-  # If original is blank replace with alt
-  mutate(edge_time = case_when(is.na(edge_time) ~ edge_time_alt,
-                               TRUE ~ edge_time)) %>% 
-  # Remove extra columns
-  select(-c(.orig_data, edge_time_alt)) %>% 
-  # remove multiple edges and loops
+  activate(nodes) %>% 
+  convert(.f = to_spatial_smooth, 
+          summarise_attributes = list(edge_time = "sum"), .clean = TRUE) %>% 
+  # Simplify network (remove multiple edges and loops)
+  activate(edges) %>% 
+  # Arrange in ascending order 
+  arrange(edge_length()) %>% 
   filter(!(is.na(edge_is_loop()) | is.na(edge_is_multiple())))
 
+fgh <- sfnet_road %>% 
+  # Contract network by replacing clustered notes with centroids
+  activate(nodes) %>% 
+  
