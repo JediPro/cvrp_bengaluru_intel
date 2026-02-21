@@ -43,21 +43,22 @@ sf_bbox <- st_bbox(sf_city_limits) %>%
 #   osmdata::osmdata_sf()
 # write_rds(x = feat_major_road, file = "feat_major_road.rds")
 
-# # Save set of roads -----------------------------------
-# feat_major_road <- read_rds(file = "feat_major_road.rds")
-# sf_city_road <- bind_rows(feat_major_road$osm_lines %>%
-#                             select(osm_id, highway, name, oneway),
-#                           feat_major_road$osm_polygons %>%
-#                             select(osm_id, highway, name, oneway) %>%
-#                             st_cast(to = "LINESTRING")) %>%
-#   # Truncate roads to stay within bounding box
-#   # Use st_intersects otherwise lines are split if they cross boundary twice
-#   st_filter(y = sf_city_limits, .predicate = st_intersects) %>% 
-#   mutate(type = st_geometry_type(x = geometry, by_geometry = TRUE))
-#   # Keep columns
-#   select(osm_id, highway, name, onweay)
-# # Save
-# write_rds(x = sf_city_road, file = "city_roads.rds")
+# Save set of roads -----------------------------------
+feat_major_road <- read_rds(file = "feat_major_road.rds")
+sf_city_road <- bind_rows(feat_major_road$osm_lines %>%
+                            select(osm_id, highway, name, oneway),
+                          feat_major_road$osm_polygons %>%
+                            select(osm_id, highway, name, oneway) %>%
+                            st_cast(to = "LINESTRING")) %>%
+  # Remove tertiary roads
+  filter(!highway %in% c("tertiary", "tertiary_link")) %>% 
+  # Truncate roads to stay within bounding box
+  # Use st_intersects otherwise lines are split if they cross boundary twice
+  st_filter(y = sf_city_limits, .predicate = st_intersects) %>%
+  # Keep columns
+  select(osm_id, highway, name, oneway)
+# Save
+write_rds(x = sf_city_road, file = "city_roads.rds")
 sf_city_road <- read_rds(file = "city_roads.rds")
 
 # Fetch bus stops of city --------------------------
