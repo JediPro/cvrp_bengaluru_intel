@@ -187,18 +187,19 @@ sfnet_road <- sf_city_road %>%
   mutate(geometry = case_when(oneway == -1 ~ st_reverse(x = geometry), TRUE ~ geometry),
          # Change tags of oneway
          oneway = case_when(oneway %in% c("yes", "-1") ~ TRUE, TRUE ~ FALSE),
-         # Need to duplicate 2-way edges, so create column to aid in that
-         dupl =  case_when(oneway ~ list(c(1)), !oneway ~ list(c(1, 2)))) %>% 
-  # Unnest to duplicate the rows
-  unnest(cols = dupl) %>% 
-  # Reverse the duplicated row
-  mutate(geometry = case_when(dupl == 2 ~ st_reverse(x = geometry), TRUE ~ geometry)) %>% 
-  # Remove columns
-  select(-c(oneway, dupl)) %>% 
+         # # Need to duplicate 2-way edges, so create column to aid in that
+         # dupl =  case_when(oneway ~ list(c(1)), !oneway ~ list(c(1, 2)))
+         ) %>% 
+  # # Unnest to duplicate the rows
+  # unnest(cols = dupl) %>% 
+  # # Reverse the duplicated row
+  # mutate(geometry = case_when(dupl == 2 ~ st_reverse(x = geometry), TRUE ~ geometry)) %>% 
+  # # Remove columns
+  # select(-c(oneway, dupl)) %>% 
   # Convert to SF NETWORK
   # Keep as non-directed to keep number of edges to minimum
   as_sfnetwork(directed = TRUE) %>% 
-  # Subdivude edges at locations which are interior points to more than one edge
+  # Subdivide edges at locations which are interior points to more than one edge
   convert(.f = to_spatial_subdivision, .clean = TRUE) %>% 
   # Group components
   activate(nodes) %>% 
@@ -256,4 +257,15 @@ fgh <- sfnet_road %>%
   # Contract network
   convert(.f = to_spatial_contracted, cluster, component,
           simplify = TRUE, .clean = TRUE, 
-          summarise_attributes = list(edge_time = "sum", "ignore"))
+          summarise_attributes = list(edge_time = "sum", "ignore")) %>% 
+  # Smooth network
+  activate(nodes) %>% 
+  convert(.f = to_spatial_smooth, 
+          summarise_attributes = list(edge_time = "sum"), .clean = TRUE)
+  
+
+ggplot() +
+  geom_sf(data = sf_city_limits, colour = "purple", linewidth = 1, fill = NA) +
+  geom_sf(data = fgh %>% st_as_sf("nodes"), size = 0.2) +
+  geom_sf(data = fgh %>% st_as_sf("edges"), linewidth = 0.5, colour = "lightblue") +
+  coord_sf(xlim = c(77.66, 77.68), ylim = c(12.90, 12.92))
