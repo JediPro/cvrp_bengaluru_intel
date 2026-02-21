@@ -194,8 +194,7 @@ sfnet_road <- sf_city_road %>%
                            str_detect(string = highway, pattern = "primary") ~ 36L,
                            str_detect(string = highway, pattern = "secondary") ~ 27L,
                            str_detect(string = highway, pattern = "tertiary") ~ 18L,
-                           TRUE ~ 9L)
-         ) %>% 
+                           TRUE ~ 9L)) %>% 
   # Keep only geometries
   select(speed) %>% 
   # Convert to SF NETWORK
@@ -242,8 +241,25 @@ difftime(time1 = Sys.time(), time2 = t0)
 
 ggplot() +
   geom_sf(data = sf_city_limits, colour = "purple", linewidth = 1, fill = NA) +
-  geom_sf(data = sfnet_road2 %>% st_as_sf("edges"), linewidth = 1, colour = "dodgerblue") +
+  geom_sf(data = sfnet_road %>% st_as_sf("edges"), linewidth = 1, colour = "dodgerblue") +
   # geom_sf(data = sfnet_road2 %>% st_as_sf("nodes"), size = 2, alpha = 0.6, colour = "firebrick") +
-  geom_sf(data = data_stop_popn, size = 2, alpha = 0.6, colour = "firebrick") +
+  geom_sf(data = fgh, size = 2, alpha = 0.6, colour = "firebrick") +
   # coord_sf(xlim = c(77.56, 77.58), ylim = c(12.96, 12.98)) +
   theme_light()
+
+# Keep PoIs which are within specific distance of the edges ---------------------
+sf_poi <- data_stop_popn %>% 
+  # Find nearest edge of network to each of the bus stops
+  mutate(nearest_edge = st_nearest_feature(x = geometry, y = sfnet_road %>% 
+                                             st_as_sf("edges"))) %>% 
+  # Fetch geometry of nearest feature
+  left_join(y = sfnet_road %>% st_as_sf("edges") %>% 
+              mutate(index = row_number()) %>% select(index) %>% as_tibble(), 
+            by = c("nearest_edge" = "index"), suffix = c("", "_edge")) %>% 
+  # Get distance
+  mutate(dist_nearest_edge = st_distance(x = geometry, y = geometry_edge, 
+                                         by_element = TRUE) %>% as.numeric()) %>% 
+  # remove linestring geometry
+  select(-c(nearest_edge, geometry_edge)) %>% 
+  # remove points more than 200m from nearest edge
+  filter(dist_nearest_edge <= 200)
