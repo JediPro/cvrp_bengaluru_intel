@@ -224,7 +224,25 @@ sfnet_road <- sf_city_road %>%
   arrange(edge_length()) %>% 
   filter(!(is.na(edge_is_loop()) | is.na(edge_is_multiple())))
 
+fx_dbscan <- function(sf_points){
+  sf_points <- sfnet_road %>% st_as_sf("nodes")
+    
+  # Extract coordinates
+  mtx_coords <- sf_points %>% 
+    # Transform to mollweide coordinates to be able to set parameters in meters
+    st_transform(crs = "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m") %>% 
+    # Fetch coordinate matrix
+    st_coordinates(x = sf_points)
+  
+  # Number of points is pretty large, so need to run frNN before clustering
+  fr_neighbour <- dbscan::frNN(x = mtx_coords, eps = 25)
+  # Fetch clusters
+  vec_cluster <- dbscan::dbscan(x = mtx_coords, eps = 25, minPts = 1)
+}
+
 fgh <- sfnet_road %>% 
   # Contract network by replacing clustered notes with centroids
   activate(nodes) %>% 
-  
+  (function(df) {
+    
+  })
