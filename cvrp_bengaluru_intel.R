@@ -265,6 +265,16 @@ sf_poi <- data_stop_popn %>%
   # remove Linestring geometry
   select(-c(nearest_edge, geometry_edge)) %>% 
   # remove points more than 200m from nearest edge
-  filter(dist_nearest_edge <= 200)
+  filter(dist_nearest_edge <= 200) %>% 
+  # Remove distance to nearest edge
+  select(-dist_nearest_edge) %>% 
+  # Add Principal PoI location
+  bind_rows(sf_point_office %>% st_as_sf() %>% rename(geometry = x) %>% 
+              mutate(stop_index = 0, popn = 0)) %>% 
+  arrange(stop_index) %>% 
+  # Round coordinates to 4 decimals
+  st_set_geometry(value = st_geometry(.) %>%
+                    lapply(FUN = function(x) round(x, 4)) %>% 
+                    st_sfc(crs = st_crs(x = sf_city_road)))
 
 # Create blended network based on PoIs -----------------------------------
