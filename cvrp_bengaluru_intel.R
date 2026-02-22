@@ -77,14 +77,14 @@ sf_city_road <- read_rds(file = "city_roads.rds")
 # sf_bus_stops <- read_rds(file = "sf_bus_stops.rds")
 
 # # Load Population raster ------------------------------
-# rs_built <- terra::rast(x = "GHS_BUILT_S_E2025_GLOBE_R2023A_54009_100_V1_0_R8_C26.tif") %>% 
+# rs_built <- terra::rast(x = "GHS_BUILT_S_E2025_GLOBE_R2023A_54009_100_V1_0_R8_C26.tif") %>%
 #   # Remove layers
-#   tidyterra::rename(built = GHS_BUILT_S_E2025_GLOBE_R2023A_54009_100_V1_0_R8_C26) %>% 
+#   tidyterra::rename(built = GHS_BUILT_S_E2025_GLOBE_R2023A_54009_100_V1_0_R8_C26) %>%
 #   # Crop to city bounding box
-#   terra::crop(y = terra::vect(x = sf_bbox %>% 
-#                                 st_transform(crs = "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m"))) %>% 
+#   terra::crop(y = terra::vect(x = sf_bbox %>%
+#                                 st_transform(crs = "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m"))) %>%
 #   # Change projection
-#   terra::project(y = "epsg:4326") %>% 
+#   terra::project(y = "epsg:4326") %>%
 #   # Mask values outside city limits
 #   terra::mask(mask = sf_city_limits, inverse = FALSE, updatevalue = NA)
 
@@ -101,55 +101,56 @@ ggsave(filename = "plot_temp.png", plot = plot_temp, device = "png",
        width = 15, height = 15, units = "cm", dpi = 300)
 
 # # Group points within 100 metres of each other --------------------------
-# sf_bus_stops_condensed <- sf_bus_stops %>% 
+# sf_bus_stops_condensed <- sf_bus_stops %>%
 #   # Convert to mollweide projection
-#   st_transform(crs = "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m") %>% 
+#   st_transform(crs = "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m") %>%
 #   # Convert to coordinates
-#   st_coordinates() %>% 
-#   as.data.frame() %>% 
+#   st_coordinates() %>%
+#   as.data.frame() %>%
 #   # Run dbscan algorithm
-#   dbscan::dbscan(eps = 200, minPts = 1) %>% 
+#   dbscan::dbscan(eps = 200, minPts = 1) %>%
 #   # Extract clusters for each point
-#   `$`(cluster) %>% 
+#   `$`(cluster) %>%
 #   # Convert to tibble
-#   as_tibble_col(column_name = "cluster_id") %>% 
+#   as_tibble_col(column_name = "stop_index") %>%
 #   # Bind to original tibble
-#   bind_cols(sf_bus_stops, .) %>% 
+#   bind_cols(sf_bus_stops, .) %>%
 #   # Group by clusters and get centroid
-#   group_by(cluster_id) %>% 
-#   summarise(geometry = st_union(x = geometry)) %>% 
-#   st_centroid() %>% 
+#   group_by(stop_index) %>%
+#   summarise(geometry = st_union(x = geometry)) %>%
+#   st_centroid() %>%
 #   # Transform coordinates
 #   st_transform(crs = 4326)
 
-# Convert to SF object ------------------------
+# # Convert to SF object ------------------------
 # sf_built <- rs_built %>% terra::as.points() %>% st_as_sf()
-# Calculate weight of each clustered bus stop, proportional to the level of built up area ----------------------
-# data_stop_popn <-  sf_bus_stops_condensed %>% 
+# # Calculate weight of each clustered bus stop, proportional to the level of built up area ----------------------
+# data_stop_popn <-  sf_bus_stops_condensed %>%
 #   # Calculate distance to all points in raster sf
-#   st_distance(y = sf_built, by_element = FALSE) %>% 
+#   st_distance(y = sf_built, by_element = FALSE) %>%
 #   # Convert to matrix
-#   as.matrix() %>% 
+#   as.matrix() %>%
 #   # Drop units due to matrix operations being hampered when sf is loaded
-#   units::drop_units() %>% 
+#   units::drop_units() %>%
 #   # Calculate multiplier for demand based on distance
 #   (function(a) exp(-(a^2)/(500^2))) %>%
 #   # Multiply by demand generated  by each point
-#   `%*%` (sf_built$built) %>% 
-#   as.data.frame() %>% 
+#   `%*%` (sf_built$built) %>%
+#   as.data.frame() %>%
 #   # Convert to tibble
-#   as_tibble() %>% 
-#   rename(popn = V1) %>% 
+#   as_tibble() %>%
+#   rename(popn = V1) %>%
 #   # Round figure
-#   mutate(popn = round(popn)) %>% 
+#   mutate(popn = round(popn)) %>%
 #   # Map Point generator fields
-#   bind_cols(sf_bus_stops_condensed, .)
+#   bind_cols(sf_bus_stops_condensed, .) %>% 
+#   # Remove stop with 0
+#   filter(popn > 0) %>% 
+#   # Normalize popn, in the range 1 to 11
+#   mutate(popn = ceiling(10 * (popn + 1 - min(popn))/(max(popn) - min(popn))))
 # write_rds(x = data_stop_popn, file = "data_stop_popn.rds")
-data_stop_popn <- read_rds(file = "data_stop_popn.rds") %>% 
-  # Remove stop with 0
-  filter(popn > 0) %>% 
-  # Normalize popn, in the range 1 to 11
-  mutate(popn = ceiling(10 * (popn + 1 - min(popn))/(max(popn) - min(popn))))
+data_stop_popn <- read_rds(file = "data_stop_popn.rds")
+  
 
 # Workflow -----------------------------
 # Initiate population with random order of stops
@@ -266,3 +267,4 @@ sf_poi <- data_stop_popn %>%
   # remove points more than 200m from nearest edge
   filter(dist_nearest_edge <= 200)
 
+# Create blended network based on PoIs -----------------------------------
