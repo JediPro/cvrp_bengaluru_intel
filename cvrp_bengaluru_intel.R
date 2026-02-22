@@ -180,66 +180,66 @@ fx_dbscan <- function(sf_points, eps){
   return(sf_points %>% mutate(cluster = vec_cluster))
 }
 
-# # Process Road Network ---------------------------------------
-# t0 <- Sys.time()
-# sfnet_road <- sf_city_road %>%
-#   # Convert all to Multi line string, to enable later conversion to Linestring
-#   st_cast(to = "MULTILINESTRING") %>% 
-#   st_cast(to = "LINESTRING") %>%
-#   # Round precision to 4 decimals
-#   st_set_geometry(value = st_geometry(.) %>% 
-#                     lapply(FUN = function(x) round(x, 4)) %>% 
-#                     st_sfc(crs = st_crs(x = sf_city_road))) %>% 
-#   # Set speeds
-#   mutate(speed = case_when(str_detect(string = highway, pattern = "motorway|trunk") ~ 45L,
-#                            str_detect(string = highway, pattern = "primary") ~ 36L,
-#                            str_detect(string = highway, pattern = "secondary") ~ 27L,
-#                            str_detect(string = highway, pattern = "tertiary") ~ 18L,
-#                            TRUE ~ 9L)) %>% 
-#   # Keep only geometries
-#   select(speed) %>% 
-#   # Convert to SF NETWORK
-#   # Keep as non-directed to keep number of edges to minimum
-#   as_sfnetwork(directed = FALSE) %>% 
-#   # Subdivide edges at locations which are interior points to more than one edge
-#   convert(.f = to_spatial_subdivision, .clean = TRUE) %>% 
-#   # Group components
-#   activate(nodes) %>% 
-#   mutate(cmp = group_components()) %>% 
-#   # Keep only the first component, which is the largest one
-#   filter(cmp == 1) %>% 
-#   select(-cmp) %>% 
-#   # Sum up weights for combined
-#   activate(edges) %>% 
-#   # Calculate time to cross edge
-#   mutate(edge_dist = edge_length() %>% as.numeric(),
-#          # Calculate time
-#          edge_time = edge_dist/((5/18) * speed)) %>% 
-#   # Remove zero length edges
-#   filter(edge_dist > 0) %>% 
-#   # Keep required fields
-#   select(-c(speed, edge_dist)) %>% 
-#   # Contract network by replacing clustered notes with centroids
-#   activate(nodes) %>% 
-#   # Apply function
-#   fx_dbscan(eps = 100) %>% 
-#   # Find the components again, so that only points in the same network are amalgamated
-#   mutate(component = group_components()) %>% 
-#   # Contract network
-#   convert(.f = to_spatial_contracted, cluster, component,
-#           simplify = TRUE, .clean = TRUE, 
-#           summarise_attributes = list(edge_time = "sum", "ignore")) %>% 
-#   # Smooth network
-#   activate(nodes) %>% 
-#   convert(.f = to_spatial_smooth, 
-#           summarise_attributes = list(edge_time = "sum"), .clean = TRUE) %>% 
-#   # Simplify network (remove multiple edges and loops)
-#   activate(edges) %>% 
-#   # Arrange in ascending order 
-#   arrange(edge_length()) %>% 
-#   filter(!(is.na(edge_is_loop()) | is.na(edge_is_multiple())))
-# difftime(time1 = Sys.time(), time2 = t0)
-# write_rds(x = sfnet_road, file = "sfnet_road.rds")
+# Process Road Network ---------------------------------------
+t0 <- Sys.time()
+sfnet_road <- sf_city_road %>%
+  # Convert all to Multi line string, to enable later conversion to Linestring
+  st_cast(to = "MULTILINESTRING") %>%
+  st_cast(to = "LINESTRING") %>%
+  # Round precision to 4 decimals
+  st_set_geometry(value = st_geometry(.) %>%
+                    lapply(FUN = function(x) round(x, 4)) %>%
+                    st_sfc(crs = st_crs(x = sf_city_road))) %>%
+  # Set speeds
+  mutate(speed = case_when(str_detect(string = highway, pattern = "motorway|trunk") ~ 45L,
+                           str_detect(string = highway, pattern = "primary") ~ 36L,
+                           str_detect(string = highway, pattern = "secondary") ~ 27L,
+                           str_detect(string = highway, pattern = "tertiary") ~ 18L,
+                           TRUE ~ 9L)) %>%
+  # Keep only geometries
+  select(speed) %>%
+  # Convert to SF NETWORK
+  # Keep as non-directed to keep number of edges to minimum
+  as_sfnetwork(directed = FALSE) %>%
+  # Subdivide edges at locations which are interior points to more than one edge
+  convert(.f = to_spatial_subdivision, .clean = TRUE) %>%
+  # Group components
+  activate(nodes) %>%
+  mutate(cmp = group_components()) %>%
+  # Keep only the first component, which is the largest one
+  filter(cmp == 1) %>%
+  select(-cmp) %>%
+  # Sum up weights for combined
+  activate(edges) %>%
+  # Calculate time to cross edge
+  mutate(edge_dist = edge_length() %>% as.numeric(),
+         # Calculate time
+         edge_time = edge_dist/((5/18) * speed)) %>%
+  # Remove zero length edges
+  filter(edge_dist > 0) %>%
+  # Keep required fields
+  select(-c(speed, edge_dist)) %>%
+  # Contract network by replacing clustered notes with centroids
+  activate(nodes) %>%
+  # Apply function
+  fx_dbscan(eps = 100) %>%
+  # Find the components again, so that only points in the same network are amalgamated
+  mutate(component = group_components()) %>%
+  # Contract network
+  convert(.f = to_spatial_contracted, cluster, component,
+          simplify = TRUE, .clean = TRUE,
+          summarise_attributes = list(edge_time = "sum", "ignore")) %>%
+  # Smooth network
+  activate(nodes) %>%
+  convert(.f = to_spatial_smooth,
+          summarise_attributes = list(edge_time = "sum"), .clean = TRUE) %>%
+  # Simplify network (remove multiple edges and loops)
+  activate(edges) %>%
+  # Arrange in ascending order
+  arrange(edge_length()) %>%
+  filter(!(is.na(edge_is_loop()) | is.na(edge_is_multiple())))
+difftime(time1 = Sys.time(), time2 = t0)
+write_rds(x = sfnet_road, file = "sfnet_road.rds")
 sfnet_road <- read_rds(file = "sfnet_road.rds")
 
 ggplot() +
@@ -275,6 +275,23 @@ sf_poi <- data_stop_popn %>%
   # Round coordinates to 4 decimals
   st_set_geometry(value = st_geometry(.) %>%
                     lapply(FUN = function(x) round(x, 4)) %>% 
-                    st_sfc(crs = st_crs(x = sf_city_road)))
+                    st_sfc(crs = st_crs(x = data_stop_popn)))
 
 # Create blended network based on PoIs -----------------------------------
+sfnet_road_poi <- sfnet_road %>% 
+  # First, need to find average speed over each length
+  # since splitting will just copy the edge time to each child edge
+  activate(edges) %>% 
+  mutate(speed = as.numeric(edge_length()/edge_time)) %>% 
+  # Blend PoIs
+  st_network_blend(y = sf_poi) %>% 
+  # Recalculate time
+  mutate(edge_time = as.numeric(edge_length()/speed)) %>% 
+  # Remove helper column
+  select(-speed)
+
+# Calculate cost distance matrix ----------------------------------
+mtx_od <- st_network_cost(x = sfnet_road_poi, from = sf_poi, to = sf_poi, weights = "edge_time")
+
+
+
