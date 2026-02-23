@@ -279,7 +279,8 @@ sfnet_road_poi <- sfnet_road %>%
 
 
 # Calculate cost distance matrix ----------------------------------
-mtx_od <- st_network_cost(x = sfnet_road_poi, from = sf_poi, to = sf_poi, weights = "edge_time")
+mtx_od <- st_network_cost(x = sfnet_road_poi, 
+                          from = sf_poi, to = sf_poi, weights = "edge_time")
 
 
 
