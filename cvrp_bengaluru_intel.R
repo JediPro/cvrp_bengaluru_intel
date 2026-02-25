@@ -149,23 +149,23 @@ data_stop_popn <- read_rds(file = "data_stop_popn.rds")
 # Use OVRP for above
 # Iterate till limits reached
 
-# # Function to calculate clusters for any SF point object ----------------------
-# fx_dbscan <- function(sf_points, eps){
-#   # sf_points <- sfnet_road %>% st_as_sf("nodes")
-#   
-#   # Extract coordinates
-#   mtx_coords <- sf_points %>% 
-#     # Transform to mollweide coordinates to be able to set parameters in meters
-#     st_transform(crs = "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m") %>% 
-#     # Fetch coordinate matrix
-#     st_coordinates()
-#   
-#   # Fetch clusters
-#   vec_cluster <- dbscan::dbscan(x = mtx_coords, eps = eps, minPts = 1)$cluster
-#   
-#   # Bind to object
-#   return(sf_points %>% mutate(cluster = vec_cluster))
-# }
+# Function to calculate clusters for any SF point object ----------------------
+fx_dbscan <- function(sf_points, eps){
+  # sf_points <- sfnet_road %>% st_as_sf("nodes")
+
+  # Extract coordinates
+  mtx_coords <- sf_points %>%
+    # Transform to mollweide coordinates to be able to set parameters in meters
+    st_transform(crs = "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m") %>%
+    # Fetch coordinate matrix
+    st_coordinates()
+
+  # Fetch clusters
+  vec_cluster <- dbscan::dbscan(x = mtx_coords, eps = eps, minPts = 1)$cluster
+
+  # Bind to object
+  return(sf_points %>% mutate(cluster = vec_cluster))
+}
 
 # # Process Road Network ---------------------------------------
 # t0 <- Sys.time()
@@ -289,7 +289,7 @@ sfnet_road_zoom <- sf_city_road_zoom %>%
   # Contract network by replacing clustered notes with centroids
   activate(nodes) %>%
   # Apply function
-  fx_dbscan(eps = 100) %>%
+  fx_dbscan(eps = 25) %>%
   # Find the components again, so that only points in the same network are amalgamated
   mutate(component = group_components()) %>%
   # Contract network
@@ -306,19 +306,22 @@ sfnet_road_zoom <- sf_city_road_zoom %>%
   arrange(edge_length()) %>%
   filter(!(is.na(edge_is_loop()) | is.na(edge_is_multiple())))
 
+sfnet_road_zoom %>% st_as_sf("nodes") %>% as_tibble() %>% count(cluster) %>% arrange(desc(n))
 
 plot_network <- ggplot() +
   # geom_sf(data = sf_city_road_zoom, aes(colour = oneway), linewidth = 1) +
   geom_sf(data = sfnet_road_zoom %>% st_as_sf("edges"), linewidth = 0.3, alpha = 0.5) +
-  geom_sf(data = sfnet_road_zoom %>% st_as_sf("nodes"), size = 0.7, alpha = 0.6, colour = "dodgerblue") +
+  geom_sf(data = sfnet_road_zoom %>% st_as_sf("nodes") %>% 
+            mutate(cluster = case_when(cluster %in% c(32,17,24,29,13,69, 38) ~ cluster, TRUE ~ 0)) , 
+          mapping = aes(colour = as.character(cluster)), size = 0.7, alpha = 0.6) +
   # geom_sf(data = sf_poi, size = 2, alpha = 0.6, colour = "firebrick") +
   coord_sf(xlim = c(77.565, 77.580), ylim = c(12.955, 12.965)) +
   scale_colour_brewer(palette = "Set2") +
-  labs(subtitle = "Directed Network") +
+  labs(subtitle = "Directed Clustered Points") +
   theme_void() +
-  theme(plot.background = element_rect(fill = "white", colour = NA), legend.position = c(0.9, 0.5))
+  theme(plot.background = element_rect(fill = "white", colour = NA), legend.position = c(0.9, 0.5), legend.justification = c(0,0.5))
 
-ggsave(plot = plot_network, device = "png", filename = "plot3.png", units = "cm", width = 15, height = 10)
+ggsave(plot = plot_network, device = "png", filename = "plot5.png", units = "cm", width = 15, height = 10)
 
 # Keep PoIs which are within specific distance of the edges ---------------------
 sf_poi <- data_stop_popn %>% 
