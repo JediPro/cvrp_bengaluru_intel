@@ -256,9 +256,15 @@ sfnet_road_zoom <- sf_city_road_zoom %>%
                            str_detect(string = highway, pattern = "primary") ~ 36L,
                            str_detect(string = highway, pattern = "secondary") ~ 27L,
                            str_detect(string = highway, pattern = "tertiary") ~ 18L,
-                           TRUE ~ 9L)) %>%
+                           TRUE ~ 9L),
+         # Create replicas of two-way roads
+         dup = case_when(oneway == "yes" ~ list(c(1)), oneway == "no" ~ list(c(1, 2)))) %>%
+  # Unnest
+  unnest(dup) %>% 
+  # Reverse the geometry of the duplicated ways
+  mutate(geometry = case_when(dup == 1 ~ geometry, dup == 2 ~ st_reverse(x = geometry))) %>% 
   # Keep only geometries
-  select(oneway, speed) %>%
+  select(speed) %>%
   # Convert to SF NETWORK
   # Keep as non-directed to keep number of edges to minimum
   as_sfnetwork(directed = TRUE) %>%
@@ -303,16 +309,16 @@ sfnet_road_zoom <- sf_city_road_zoom %>%
 
 plot_network <- ggplot() +
   # geom_sf(data = sf_city_road_zoom, aes(colour = oneway), linewidth = 1) +
-  geom_sf(data = sfnet_road_zoom %>% st_as_sf("edges"), aes(colour = oneway), linewidth = 0.3) +
+  geom_sf(data = sfnet_road_zoom %>% st_as_sf("edges"), linewidth = 0.3, alpha = 0.5) +
   geom_sf(data = sfnet_road_zoom %>% st_as_sf("nodes"), size = 0.7, alpha = 0.6, colour = "dodgerblue") +
   # geom_sf(data = sf_poi, size = 2, alpha = 0.6, colour = "firebrick") +
   coord_sf(xlim = c(77.565, 77.580), ylim = c(12.955, 12.965)) +
   scale_colour_brewer(palette = "Set2") +
-  labs(subtitle = "Subdivided Network") +
+  labs(subtitle = "Directed Network") +
   theme_void() +
   theme(plot.background = element_rect(fill = "white", colour = NA), legend.position = c(0.9, 0.5))
 
-ggsave(plot = plot_network, device = "png", filename = "plot2.png", units = "cm", width = 15, height = 10)
+ggsave(plot = plot_network, device = "png", filename = "plot3.png", units = "cm", width = 15, height = 10)
 
 # Keep PoIs which are within specific distance of the edges ---------------------
 sf_poi <- data_stop_popn %>% 
