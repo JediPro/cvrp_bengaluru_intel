@@ -229,13 +229,28 @@ data_stop_popn <- read_rds(file = "data_stop_popn.rds")
 # write_rds(x = sfnet_road, file = "sfnet_road.rds")
 sfnet_road <- read_rds(file = "sfnet_road.rds")
 
-# ggplot() +
-#   geom_sf(data = sf_city_limits, colour = NA, fill = "grey87", linewidth = 1) +
-#   geom_sf(data = sfnet_road %>% st_as_sf("edges"), linewidth = 1, colour = "dodgerblue") +
-#   # geom_sf(data = sfnet_road2 %>% st_as_sf("nodes"), size = 2, alpha = 0.6, colour = "firebrick") +
-#   geom_sf(data = sf_poi, size = 2, alpha = 0.6, colour = "firebrick") +
-#   # coord_sf(xlim = c(77.56, 77.58), ylim = c(12.96, 12.98)) +
-#   theme_light()
+# Focus on small part of network --------------------------------
+bbox_polygon <- st_bbox(obj = c(xmin = 77.56, ymin = 12.95, xmax = 77.585, ymax = 12.97), 
+                        crs = st_crs(sf_city_road)) %>% 
+  # Convert to sf
+  st_as_sfc()
+
+# Cut road network
+sf_city_road_zoom <- sf_city_road %>% 
+  st_intersection(y = bbox_polygon) %>%
+  # recode oneway
+  mutate(oneway = case_match(.x = oneway, NA_character_ ~ "no", "-1" ~ "yes",
+                             .default = oneway))
+
+
+ggplot() +
+  # geom_sf(data = sf_city_limits, colour = NA, fill = "grey87", linewidth = 1, alpha = 0.5) +
+  geom_sf(data = sf_city_road_zoom, aes(colour = oneway), linewidth = 1) +
+  # geom_sf(data = sfnet_road2 %>% st_as_sf("nodes"), size = 2, alpha = 0.6, colour = "firebrick") +
+  # geom_sf(data = sf_poi, size = 2, alpha = 0.6, colour = "firebrick") +
+  # coord_sf(xlim = c(77.56, 77.585), ylim = c(12.95, 12.97)) +
+  scale_colour_brewer(palette = "Set2") +
+  theme_light()
 
 # Keep PoIs which are within specific distance of the edges ---------------------
 sf_poi <- data_stop_popn %>% 
