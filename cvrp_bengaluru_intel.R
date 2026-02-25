@@ -230,7 +230,7 @@ data_stop_popn <- read_rds(file = "data_stop_popn.rds")
 sfnet_road <- read_rds(file = "sfnet_road.rds")
 
 # Focus on small part of network --------------------------------
-bbox_polygon <- st_bbox(obj = c(xmin = 77.56, ymin = 12.95, xmax = 77.585, ymax = 12.97), 
+bbox_polygon <- st_bbox(obj = c(xmin = 77.565, ymin = 12.955, xmax = 77.580, ymax = 12.965), 
                         crs = st_crs(sf_city_road)) %>% 
   # Convert to sf
   st_as_sfc()
@@ -242,15 +242,77 @@ sf_city_road_zoom <- sf_city_road %>%
   mutate(oneway = case_match(.x = oneway, NA_character_ ~ "no", "-1" ~ "yes",
                              .default = oneway))
 
+# Process network
+sfnet_road_zoom <- sf_city_road_zoom %>%
+  # Convert all to Multi line string, to enable later conversion to Linestring
+  st_cast(to = "MULTILINESTRING") %>%
+  st_cast(to = "LINESTRING") %>%
+  # Round precision to 4 decimals
+  st_set_geometry(value = st_geometry(.) %>%
+                    lapply(FUN = function(x) round(x, 4)) %>%
+                    st_sfc(crs = st_crs(x = sf_city_road))) %>%
+  # Set speeds
+  mutate(speed = case_when(str_detect(string = highway, pattern = "motorway|trunk") ~ 45L,
+                           str_detect(string = highway, pattern = "primary") ~ 36L,
+                           str_detect(string = highway, pattern = "secondary") ~ 27L,
+                           str_detect(string = highway, pattern = "tertiary") ~ 18L,
+                           TRUE ~ 9L)) %>%
+  # Keep only geometries
+  select(oneway, speed) %>%
+  # Convert to SF NETWORK
+  # Keep as non-directed to keep number of edges to minimum
+  as_sfnetwork(directed = TRUE) %>%
+  # Subdivide edges at locations which are interior points to more than one edge
+  convert(.f = to_spatial_subdivision, .clean = TRUE) %>%
+  # Group components
+  activate(nodes) %>%
+  mutate(cmp = group_components()) %>%
+  # Keep only the first component, which is the largest one
+  filter(cmp == 1) %>%
+  select(-cmp) %>%
+  # Sum up weights for combined
+  activate(edges) %>%
+  # Calculate time to cross edge
+  mutate(edge_dist = edge_length() %>% as.numeric(),
+         # Calculate time
+         edge_time = edge_dist/((5/18) * speed)) %>%
+  # Remove zero length edges
+  filter(edge_dist > 0) %>%
+  # Keep required fields
+  select(-c(speed, edge_dist)) %>%
+  # Contract network by replacing clustered notes with centroids
+  activate(nodes) %>%
+  # Apply function
+  fx_dbscan(eps = 100) %>%
+  # Find the components again, so that only points in the same network are amalgamated
+  mutate(component = group_components()) %>%
+  # Contract network
+  convert(.f = to_spatial_contracted, cluster, component,
+          simplify = TRUE, .clean = TRUE,
+          summarise_attributes = list(edge_time = "sum", "ignore")) %>%
+  # Smooth network
+  activate(nodes) %>%
+  convert(.f = to_spatial_smooth,
+          summarise_attributes = list(edge_time = "sum"), .clean = TRUE) %>%
+  # Simplify network (remove multiple edges and loops)
+  activate(edges) %>%
+  # Arrange in ascending order
+  arrange(edge_length()) %>%
+  filter(!(is.na(edge_is_loop()) | is.na(edge_is_multiple())))
 
-ggplot() +
-  # geom_sf(data = sf_city_limits, colour = NA, fill = "grey87", linewidth = 1, alpha = 0.5) +
-  geom_sf(data = sf_city_road_zoom, aes(colour = oneway), linewidth = 1) +
-  # geom_sf(data = sfnet_road2 %>% st_as_sf("nodes"), size = 2, alpha = 0.6, colour = "firebrick") +
+
+plot_network <- ggplot() +
+  # geom_sf(data = sf_city_road_zoom, aes(colour = oneway), linewidth = 1) +
+  geom_sf(data = sfnet_road_zoom %>% st_as_sf("edges"), aes(colour = oneway), linewidth = 0.3) +
+  geom_sf(data = sfnet_road_zoom %>% st_as_sf("nodes"), size = 0.7, alpha = 0.6, colour = "dodgerblue") +
   # geom_sf(data = sf_poi, size = 2, alpha = 0.6, colour = "firebrick") +
-  # coord_sf(xlim = c(77.56, 77.585), ylim = c(12.95, 12.97)) +
+  coord_sf(xlim = c(77.565, 77.580), ylim = c(12.955, 12.965)) +
   scale_colour_brewer(palette = "Set2") +
-  theme_light()
+  labs(subtitle = "Subdivided Network") +
+  theme_void() +
+  theme(plot.background = element_rect(fill = "white", colour = NA), legend.position = c(0.9, 0.5))
+
+ggsave(plot = plot_network, device = "png", filename = "plot2.png", units = "cm", width = 15, height = 10)
 
 # Keep PoIs which are within specific distance of the edges ---------------------
 sf_poi <- data_stop_popn %>% 
