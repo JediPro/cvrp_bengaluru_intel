@@ -167,9 +167,23 @@ fx_dbscan <- function(sf_points, eps){
   return(sf_points %>% mutate(cluster = vec_cluster))
 }
 
+for (i in 1:nrow(sfnet_road)) {
+  tryCatch({
+    if (sfnet_road$dup[i] == 2) {
+      temp <- st_reverse(sfnet_road$geometry[i])
+    }
+  }, error = function(e) {
+    cat("Error found at row:", i, "\n")
+    print(e)
+  })
+}
+
 # # Process Road Network ---------------------------------------
 # t0 <- Sys.time()
 # sfnet_road <- sf_city_road %>%
+#   # Recode oneway
+#   mutate(oneway = case_match(.x = oneway, NA_character_ ~ "no", "-1" ~ "yes",
+#                              .default = oneway)) %>% 
 #   # Convert all to Multi line string, to enable later conversion to Linestring
 #   st_cast(to = "MULTILINESTRING") %>%
 #   st_cast(to = "LINESTRING") %>%
@@ -182,12 +196,20 @@ fx_dbscan <- function(sf_points, eps){
 #                            str_detect(string = highway, pattern = "primary") ~ 36L,
 #                            str_detect(string = highway, pattern = "secondary") ~ 27L,
 #                            str_detect(string = highway, pattern = "tertiary") ~ 18L,
-#                            TRUE ~ 9L)) %>%
+#                            TRUE ~ 9L),
+#          # Create replicas of two-way roads
+#          dup = case_when(oneway == "yes" ~ list(c(1)), oneway == "no" ~ list(c(1, 2)))) %>%
+#   # Unnest
+#   unnest(dup) %>% 
+#   # Reverse the geometry of the duplicated ways
+#   # Case When throws an error, probably due to crs mismatches
+#   (function(df) bind_rows(df %>% filter(dup == 1), 
+#                           df %>% filter(dup == 2) %>% st_reverse())) %>% 
 #   # Keep only geometries
 #   select(speed) %>%
 #   # Convert to SF NETWORK
 #   # Keep as non-directed to keep number of edges to minimum
-#   as_sfnetwork(directed = FALSE) %>%
+#   as_sfnetwork(directed = TRUE) %>%
 #   # Subdivide edges at locations which are interior points to more than one edge
 #   convert(.f = to_spatial_subdivision, .clean = TRUE) %>%
 #   # Group components
@@ -209,7 +231,7 @@ fx_dbscan <- function(sf_points, eps){
 #   # Contract network by replacing clustered notes with centroids
 #   activate(nodes) %>%
 #   # Apply function
-#   fx_dbscan(eps = 100) %>%
+#   fx_dbscan(eps = 25) %>%
 #   # Find the components again, so that only points in the same network are amalgamated
 #   mutate(component = group_components()) %>%
 #   # Contract network
@@ -311,9 +333,10 @@ sfnet_road_zoom %>% st_as_sf("nodes") %>% as_tibble() %>% count(cluster) %>% arr
 plot_network <- ggplot() +
   # geom_sf(data = sf_city_road_zoom, aes(colour = oneway), linewidth = 1) +
   geom_sf(data = sfnet_road_zoom %>% st_as_sf("edges"), linewidth = 0.3, alpha = 0.5) +
-  geom_sf(data = sfnet_road_zoom %>% st_as_sf("nodes") %>% 
-            mutate(cluster = case_when(cluster %in% c(32,17,24,29,13,69, 38) ~ cluster, TRUE ~ 0)) , 
-          mapping = aes(colour = as.character(cluster)), size = 0.7, alpha = 0.6) +
+  # geom_sf(data = sfnet_road_zoom %>% st_as_sf("nodes") %>% 
+  #           mutate(cluster = case_when(cluster %in% c(32,17,24,29,13,69, 38) ~ cluster, TRUE ~ 0)) , 
+  #         mapping = aes(colour = as.character(cluster)), size = 0.7, alpha = 0.6) +
+  geom_sf(data = sfnet_road_zoom %>% st_as_sf("nodes"), size = 0.7, alpha = 0.6) +
   # geom_sf(data = sf_poi, size = 2, alpha = 0.6, colour = "firebrick") +
   coord_sf(xlim = c(77.565, 77.580), ylim = c(12.955, 12.965)) +
   scale_colour_brewer(palette = "Set2") +
@@ -321,7 +344,7 @@ plot_network <- ggplot() +
   theme_void() +
   theme(plot.background = element_rect(fill = "white", colour = NA), legend.position = c(0.9, 0.5), legend.justification = c(0,0.5))
 
-ggsave(plot = plot_network, device = "png", filename = "plot5.png", units = "cm", width = 15, height = 10)
+ggsave(plot = plot_network, device = "png", filename = "plot6.png", units = "cm", width = 15, height = 10)
 
 # Keep PoIs which are within specific distance of the edges ---------------------
 sf_poi <- data_stop_popn %>% 
